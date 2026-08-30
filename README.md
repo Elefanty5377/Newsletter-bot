@@ -1,4 +1,4 @@
-# Bloomberg Newsletter Digest Bot
+# Bloomberg Newsletter Telegram Bot
 
 A Google Apps Script that reads, in this case, Bloomberg newsletters from your Gmail inbox, summarises them with the Gemini API, and delivers a formatted digest to Telegram twice a day.
 
