@@ -7,8 +7,6 @@ const CONFIG = {
   NOTIFY_EMAIL:    'your email',
 };
 
-// this is a comment
-
 
 
 function generateBloombergBrief() {
