@@ -2,7 +2,9 @@
 
 A Google Apps Script that reads, in this case, Bloomberg newsletters from your Gmail inbox, summarises them with the Gemini API, and delivers a formatted digest to Telegram twice a day.
 
-Bloomberg's newsletters are long, and opening them individually from your inbox is unnecessarily tedious and inefficient. Thus, this condenses all the vital information into an automated message that is sent to you as many times as you want (you can tweak the scheduler). Furthermore, with the code being run on Google Apps Script, the script is being run on the cloud for free. 
+Bloomberg's newsletters are long, and opening them individually from your inbox is unnecessarily tedious and inefficient. Thus, this condenses all the vital information into an automated message that is sent to you as many times as you want (you can tweak the scheduler). I chose to run the code on Google Apps Script as it acts as a free cloud to host my code.
+
+This entire project requires $0 and leverages Google's free api keys and Bloomberg's free newsletters.
 
 ---
 
@@ -13,7 +15,7 @@ Bloomberg's newsletters are long, and opening them individually from your inbox 
 3. **Deliver** — filters sections by time of day (Asia vs Americas briefings), formats them as Telegram HTML, splits anything over Telegram's 4096-character message limit, and sends.
 4. **Alert** — emails you the error and stops.
 
-Two time-based triggers run it daily at 08:30 and 19:30 in the script's timezone.
+Two time-based triggers run it daily at 08:30 and 19:30 in the script's timezone. (You can edit this to choose what time you want to receive the messages)
 
 ---
 
@@ -85,7 +87,7 @@ To test immediately, run `generateBloombergBrief()` and watch the execution log.
 
 ## A note on content
 
-This script processes newsletters delivered to your own inbox and sends the summary to a private chat. It does not scrape, redistribute, or republish Bloomberg content. Bloomberg's newsletter content is theirs; keep the output to yourself.
+This script just processes and scrapes the newsletters delivered to your own inbox and sends the summary to a private chat. It does not find its own information and relies solely on the Bloomberg newsletters. 
 
 ---
 
