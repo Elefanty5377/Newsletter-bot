@@ -4,7 +4,7 @@ const CONFIG = {
   LOOKBACK_DAYS:   1,
   MAX_EMAILS:      8,
   MAX_BODY_CHARS:  12500, 
-  NOTIFY_EMAIL:    'your email',
+  NOTIFY_EMAIL:    'naamanyap@gmail.com',
 };
 
 
@@ -15,17 +15,20 @@ function generateBloombergBrief() {
 
     const now       = new Date();
     const dateLabel = formatDate(now, 'MMMM d, yyyy');
-    const hour      = now.getHours(); 
+    const hour      = now.getHours(); // Get current hour
 
+    // 1. Fetch Bloomberg emails
     Logger.log('📬 Searching Gmail for Bloomberg emails…');
     const emailContent = fetchBloombergEmails();
     const hasEmails    = emailContent.trim().length > 100;
     Logger.log(hasEmails ? '✓ Found Bloomberg emails (' + emailContent.length + ' chars)' : '⚠ No emails found — generating empty state');
 
+    // 2. Summarize with Gemini → structured digest JSON
     Logger.log('🤖 Calling Gemini API…');
     const digest = summarizeWithGemini(emailContent, hasEmails, dateLabel);
     Logger.log('✓ Digest generated with ' + (digest.sections || []).length + ' sections');
 
+    // 3. Format and Send to Telegram
     Logger.log('📤 Sending Brief to Telegram…');
     sendBriefToTelegram(digest, dateLabel, hour);
     Logger.log('✅ Done! All messages sent to Telegram.');
@@ -69,9 +72,6 @@ function fetchBloombergEmails() {
 
   return combined;
 }
-
-
-
 
 function summarizeWithGemini(emailContent, hasEmails, dateLabel) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
@@ -167,23 +167,31 @@ function summarizeWithGemini(emailContent, hasEmails, dateLabel) {
 
   var data = JSON.parse(response.getContentText());
   var rawText = "";
+  
   if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
     rawText = data.candidates[0].content.parts[0].text;
   }
+  
   if (!rawText) throw new Error('Gemini response was empty or structural parsing failed.');
+
   return JSON.parse(rawText.trim());
 }
 
 function sendBriefToTelegram(digest, dateLabel, hour) {
   const botToken = PropertiesService.getScriptProperties().getProperty('TELEGRAM_BOT_TOKEN');
   const chatId   = PropertiesService.getScriptProperties().getProperty('TELEGRAM_CHAT_ID');
+  
   if (!botToken || !chatId) throw new Error('Missing credentials.');
+
+ 
   const isMorningWindow = (hour < 14); 
   const schedule = {
     false: ["MORNING BRIEFING — AMERICAS", "EVENING BRIEFING — ASIA"],
     true: ["MORNING BRIEFING — ASIA", "EVENING BRIEFING — AMERICAS"]
   };
+
   const alwaysInclude = ["MARKETS", "TECHNOLOGY", "MONEY STUFF", "BALANCE OF POWER", "SURVEILLANCE", "ECONOMICS & GREEN", "POLITICS & POLICY"];
+  
   const normalize = (str) => str.toUpperCase().trim().replace(/—/g, '-');
   const allowedSections = (schedule[isMorningWindow] || []).concat(alwaysInclude).map(normalize);
 
@@ -198,41 +206,64 @@ function sendBriefToTelegram(digest, dateLabel, hour) {
       }
       if (!section.articles || section.articles.length === 0) return;
 
-      let sectionHeader = `${section.emoji || '▪️'} <b>${section.title}</b>\n <i>${section.byline || ''}</i>\n─────────────────\n\n`;
+      const title  = escapeHtml(section.title);
+      const byline = escapeHtml(section.byline || '');
+
+      let sectionHeader = `${section.emoji || '▪️'} <b>${title}</b>\n <i>${byline}</i>\n─────────────────\n\n`;
       let currentMsg = sectionHeader;
 
       section.articles.forEach(function(article) {
-        let articleText = `🔹 <b>${article.headline}</b>\n${article.body}\n\n`;
-        
+        const headline = escapeHtml(article.headline || '');
+        const body     = escapeHtml(article.body || '');
+        let articleText = `🔹 <b>${headline}</b>\n${body}\n\n`;
+
+        if (articleText.length > 4000) {
+          if (currentMsg !== sectionHeader) {
+            sendTelegramMessage(botToken, chatId, currentMsg);
+            Utilities.sleep(1500);
+          }
+          splitIntoChunks(articleText, 4000).forEach(function(chunk) {
+            sendTelegramMessage(botToken, chatId, chunk);
+            Utilities.sleep(1500);
+          });
+          currentMsg = `${section.emoji || '▪️'} <b>${title} (Cont.)</b>\n─────────────────\n\n`;
+          return;
+        }
+
         if ((currentMsg + articleText).length > 4000) {
           sendTelegramMessage(botToken, chatId, currentMsg);
-          Utilities.sleep(1500); 
-          currentMsg = `${section.emoji || '▪️'} <b>${section.title} (Cont.)</b>\n─────────────────\n\n` + articleText;
+          Utilities.sleep(1500);
+          currentMsg = `${section.emoji || '▪️'} <b>${title} (Cont.)</b>\n─────────────────\n\n` + articleText;
         } else {
           currentMsg += articleText;
         }
       });
 
-      sendTelegramMessage(botToken, chatId, currentMsg);
-      Utilities.sleep(1500);
-    }); 
+      if (currentMsg !== sectionHeader) {
+        sendTelegramMessage(botToken, chatId, currentMsg);
+        Utilities.sleep(1500);
+      }
+    });
   }
 
   if (digest.quickHits && digest.quickHits.length > 0) {
     Logger.log('Processing ' + digest.quickHits.length + ' quick hits.');
-    
+
     let hitsMsg = `⚡ <b>QUICK HITS</b>\n───────────────────\n`;
+
     digest.quickHits.forEach(function(hit, index) {
       Logger.log('Processing hit ' + (index + 1) + ': ' + hit.substring(0, 50) + '...');
-      let hitLine = `• ${hit}\n\n`;
+
+      let hitLine = `• ${escapeHtml(hit)}\n\n`;
+
       if ((hitsMsg + hitLine).length > 4000) {
         sendTelegramMessage(botToken, chatId, hitsMsg);
         Utilities.sleep(1500);
-        hitsMsg = `⚡ <b>QUICK HITS(Cont.)</b>\n───────────────────\n`;
+        hitsMsg = `⚡ <b>QUICK HITS (Cont.)</b>\n───────────────────\n`;
       }
       hitsMsg += hitLine;
     });
-    
+
     sendTelegramMessage(botToken, chatId, hitsMsg);
   } else {
     Logger.log('QuickHits array is empty or missing.');
@@ -257,15 +288,17 @@ function sendTelegramMessage(botToken, chatId, text) {
 
   const response = UrlFetchApp.fetch(url, options);
   const status = response.getResponseCode();
-  
+
   if (status !== 200) {
-    Logger.log(`❌ Telegram error (HTTP ${status}): ${response.getContentText()}`);
+    throw new Error(`Telegram error (HTTP ${status}): ${response.getContentText()}`);
   }
 }
+
 
 function setupDailyTriggers() {
   removeDailyTriggers(); 
 
+  // Morning Trigger
   ScriptApp.newTrigger('generateBloombergBrief')
     .timeBased()
     .everyDays(1)
@@ -274,6 +307,7 @@ function setupDailyTriggers() {
     .inTimezone(Session.getScriptTimeZone())
     .create();
 
+  // Evening Trigger
   ScriptApp.newTrigger('generateBloombergBrief')
     .timeBased()
     .everyDays(1)
@@ -282,7 +316,7 @@ function setupDailyTriggers() {
     .inTimezone(Session.getScriptTimeZone())
     .create();
 
-  Logger.log('Both daily triggers systematically configured for 8:30 AM and 7:30 PM');
+  Logger.log('✅ Both daily triggers systematically configured for 8:30 AM and 7:30 PM');
 }
 
 function removeDailyTriggers() {
@@ -292,11 +326,31 @@ function removeDailyTriggers() {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-  Logger.log('All daily triggers for generateBloombergBrief removed.');
+  Logger.log('🛑 All daily triggers for generateBloombergBrief removed.');
 }
 
 function formatDate(date, pattern) {
   return Utilities.formatDate(date, Session.getScriptTimeZone(), pattern);
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function splitIntoChunks(text, maxLen) {
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    let splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt < maxLen * 0.5) splitAt = maxLen;
+    chunks.push(remaining.substring(0, splitAt));
+    remaining = remaining.substring(splitAt);
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+  return chunks;
 }
 
 function sendFailureAlert(err) {
@@ -312,3 +366,4 @@ function sendFailureAlert(err) {
     Logger.log('Could not send alert email: ' + e.message);
   }
 }
+
